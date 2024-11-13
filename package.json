@@ -1,0 +1,22 @@
+{
+  "name": "labvoiceweb",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.6",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "svelte": "^5.1.3",
+    "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "@sveltejs/kit": "^2.8.0",
+    "axios": "^1.7.7",
+    "websocket": "^1.0.35"
+  }
+}
