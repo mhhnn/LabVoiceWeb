@@ -91,7 +91,8 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Origin': window.location.origin
         },
         body: JSON.stringify(requestBody)
       });
@@ -238,8 +239,9 @@
     
     <!-- Silence threshold -->
     <div class="setting-item">
-      <label>Silence Threshold (seconds)</label>
+      <label for="silenceThreshold">Silence Threshold (seconds)</label>
       <input 
+        id="silenceThreshold"
         type="range" 
         min="0.2" 
         max="2" 
