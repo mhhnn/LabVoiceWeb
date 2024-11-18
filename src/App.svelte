@@ -5,33 +5,41 @@
   let messages = [];
   let inputText = '';
   let isListening = false;
-  let openAIKey = '';
-  let silenceThreshold = 0.5;
+  let isSpeaking = false;
   let selectedVoice = null;
   let voices = [];
-  let pitch = 1;
-  let rate = 1;
-  let volume = 1;
+  let isDarkTheme = false;
+  let silenceThreshold = 0.5;
+  let pitch = 1.0;
+  let rate = 1.0;
+  let volume = 1.0;
   
   // Speech recognition setup
   let recognition;
   let synthesis;
   
-  // Add theme state
-  let isDarkTheme = false;
-  
-  function toggleTheme() {
-    isDarkTheme = !isDarkTheme;
-    document.body.classList.toggle('dark-theme');
-  }
-  
   onMount(() => {
-    // Initialize Web Speech API
-    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    // Check if browser supports speech recognition
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      console.error('Speech recognition not supported in this browser');
+      return;
+    }
+
+    // Fix speech recognition initialization
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    
+    // Configure recognition settings
     recognition.continuous = true;
     recognition.interimResults = true;
-    
-    // Get available voices
+    recognition.lang = 'en-US'; // Add language setting
+
+    // Error handling for recognition
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      isListening = false;
+    };
+
     synthesis = window.speechSynthesis;
     voices = synthesis.getVoices();
     selectedVoice = voices[0];
@@ -50,28 +58,18 @@
         }
       }
       if (final_transcript) {
+        inputText = final_transcript;
         handleUserInput(final_transcript);
       }
     };
-    
-    let silenceTimer;
-    recognition.onaudioend = () => {
-      silenceTimer = setTimeout(() => {
-        if (isListening) {
-          stopListening();
-          processInput();
-        }
-      }, silenceThreshold * 1000);
+
+    recognition.onend = () => {
+      if (isListening) {
+        recognition.start();
+      }
     };
-    
-    // Initial scroll to bottom
-    setTimeout(() => {
-      const chatContainer = document.querySelector('.chat-container');
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    }, 0);
   });
-  
-  // Handle user input (both voice and text)
+
   async function handleUserInput(input) {
     if (!input.trim()) return;
     
@@ -79,42 +77,61 @@
     inputText = '';
     
     try {
-      const response = await fetch('YOUR_EC2_ENDPOINT', {
+      const endpoint = 'https://n101d0uod9.execute-api.us-east-1.amazonaws.com/dev/test';
+      console.log('Attempting to fetch from:', endpoint);
+      
+      const requestBody = {
+        message: input,
+        history: messages.map(m => ({ role: m.role, content: m.content }))
+      };
+      
+      console.log('Request body:', requestBody);
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openAIKey}`
+          'Accept': 'application/json'
         },
-        body: JSON.stringify({ message: input })
+        body: JSON.stringify(requestBody)
       });
       
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response status:', response.status);
+        console.error('Response text:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+      
       const data = await response.json();
-      messages = [...messages, { role: 'assistant', content: data.response }];
+      console.log('API Response:', data);
       
-      // Scroll to bottom after new message
-      setTimeout(() => {
-        const chatContainer = document.querySelector('.chat-container');
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }, 0);
+      if (!data || !data.message) {
+        throw new Error('Invalid response format from API');
+      }
       
-      speak(data.response);
+      const assistantMessage = data.message;
+      messages = [...messages, { role: 'assistant', content: assistantMessage }];
+      
+      scrollToBottom();
+      
+      if (isListening) {
+        stopListening();
+      }
+      speak(assistantMessage);
+      
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Detailed error:', error);
       messages = [...messages, { 
         role: 'assistant', 
-        content: 'Sorry, there was an error processing your request.' 
+        content: `Error: ${error.message}` 
       }];
-      
-      // Scroll to bottom after error message
-      setTimeout(() => {
-        const chatContainer = document.querySelector('.chat-container');
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }, 0);
+      scrollToBottom();
     }
   }
-  
-  // Speech synthesis
+
   function speak(text) {
+    isSpeaking = true;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.voice = selectedVoice;
     utterance.pitch = pitch;
@@ -122,38 +139,53 @@
     utterance.volume = volume;
     
     utterance.onend = () => {
-      // Resume listening after speaking
-      startListening();
+      isSpeaking = false;
+      if (!isListening) {
+        startListening();
+      }
     };
     
     synthesis.speak(utterance);
   }
-  
-  // Voice control functions
+
   function startListening() {
-    isListening = true;
-    recognition.start();
+    try {
+      isListening = true;
+      recognition.start();
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      isListening = false;
+    }
   }
-  
+
   function stopListening() {
     isListening = false;
     recognition.stop();
   }
-  
-  // File upload handler
-  async function handleFileUpload(event) {
+
+  function stopSpeaking() {
+    isSpeaking = false;
+    synthesis.cancel();
+  }
+
+  function scrollToBottom() {
+    setTimeout(() => {
+      const chatContainer = document.querySelector('.chat-container');
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }, 0);
+  }
+
+  function handleFileUpload(event) {
     const file = event.target.files[0];
-    const formData = new FormData();
-    formData.append('sop', file);
-    
-    try {
-      await fetch('YOUR_EC2_ENDPOINT/upload', {
-        method: 'POST',
-        body: formData
-      });
-    } catch (error) {
-      console.error('Error uploading file:', error);
+    if (file) {
+      // Handle file upload logic here
+      console.log('File selected:', file.name);
     }
+  }
+
+  function toggleTheme() {
+    isDarkTheme = !isDarkTheme;
+    document.body.classList.toggle('dark-theme', isDarkTheme);
   }
 </script>
 
@@ -190,6 +222,14 @@
     >
       {isListening ? 'Stop' : 'Start'} Listening
     </button>
+    {#if isSpeaking}
+      <button 
+        class="stop-btn" 
+        on:click={stopSpeaking}
+      >
+        Stop Speaking
+      </button>
+    {/if}
   </div>
   
   <!-- Settings panel -->
@@ -207,16 +247,6 @@
         bind:value={silenceThreshold}
       />
       <span>{silenceThreshold}s</span>
-    </div>
-    
-    <!-- OpenAI Key -->
-    <div class="setting-item">
-      <label>OpenAI API Key</label>
-      <input 
-        type="password" 
-        bind:value={openAIKey} 
-        placeholder="Enter your OpenAI API key"
-      />
     </div>
     
     <!-- SOP Upload -->
@@ -456,5 +486,21 @@
     .input-container {
       right: 20px;
     }
+  }
+
+  .stop-btn {
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: none;
+    background: #f44336;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .stop-btn:hover {
+    background: #d32f2f;
   }
 </style>
